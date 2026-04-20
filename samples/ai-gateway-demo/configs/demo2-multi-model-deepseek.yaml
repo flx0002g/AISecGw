@@ -1,0 +1,33 @@
+# 演示 2：多模型接入 —— DeepSeek 切换配置
+#
+# 演示场景：业务代码不变，只修改网关侧 ai-proxy 配置，即可无感切换到 DeepSeek
+
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ai-proxy-deepseek-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-proxy:latest
+  defaultConfig:
+    provider:
+      type: deepseek
+      apiTokens:
+        - "YOUR_DEEPSEEK_API_KEY"
+      # 同样的模型映射，业务请求中的模型名不变
+      modelMapping:
+        "gpt-3.5-turbo": "deepseek-chat"
+        "gpt-4": "deepseek-chat"
+        "gpt-4o": "deepseek-reasoner"
+        "*": "deepseek-chat"
+---
+# 演示说明：
+# 切换步骤：
+#   1. 将上面的 WasmPlugin 配置更新到 Higress 控制台（或 kubectl apply）
+#   2. 业务侧代码完全不变，继续用同一个接口地址和 OpenAI SDK 发请求
+#   3. 请求会自动路由到 DeepSeek 模型
+#
+# 核心亮点：
+#   - 同一个 API 地址（http://localhost:8080/v1/chat/completions）
+#   - 同一份业务代码
+#   - 只改网关配置，实现 Qwen <-> DeepSeek <-> GPT-4 等任意切换

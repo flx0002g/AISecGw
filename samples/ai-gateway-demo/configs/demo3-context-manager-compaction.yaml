@@ -1,0 +1,41 @@
+# 演示 3：LongBench 场景 —— 上下文压缩（Compaction）策略配置
+#
+# 核心场景：长对话 Token 稳定控制，防止上下文窗口溢出
+
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ai-context-manager-compaction-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-context-manager:latest
+  defaultConfig:
+    # 使用压缩策略（对标 Google ADK EventsCompactionConfig）
+    summarize_strategy: compaction
+
+    # 每 5 轮对话触发一次压缩（对标 ADK compaction_interval）
+    compaction_interval: 5
+
+    # 压缩窗口间保留 2 条重叠消息，确保上下文连续性（对标 ADK overlap_size）
+    overlap_size: 2
+
+    # Token 阈值触发：超过 2000 tokens 时也触发压缩
+    token_threshold: 2000
+
+    # 保护系统提示词不被压缩
+    preserve_system_message: true
+
+    # 强制保留最近 2 条消息
+    preserve_last_n: 2
+
+    # 保持 user-assistant 消息对完整性（对标 ADK 轮次完整性）
+    preserve_turn_pairs: true
+
+    # 启用 Token 使用追踪（通过响应头观察效果）
+    track_token_usage: true
+
+    # 中文摘要模板
+    compaction_summary_template: "[对话摘要] 以下是之前对话的关键信息摘要：\n{summary}"
+
+    # Token 估算比率（中文约 2 字/token）
+    token_estimate_ratio: 2.5

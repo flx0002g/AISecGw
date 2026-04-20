@@ -1,0 +1,43 @@
+# 演示 2：多模型接入 —— 通义千问（Qwen）配置
+#
+# 通过 ai-proxy 插件将 OpenAI 协议请求路由至通义千问
+
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ai-proxy-qwen-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-proxy:latest
+  defaultConfig:
+    provider:
+      type: qwen
+      apiTokens:
+        - "YOUR_DASHSCOPE_API_KEY"
+      # 模型映射：将通用模型名映射至通义千问模型
+      modelMapping:
+        "gpt-3.5-turbo": "qwen-turbo"
+        "gpt-4": "qwen-plus"
+        "gpt-4o": "qwen-max"
+        "*": "qwen-turbo"
+---
+# 对应的路由配置（Ingress）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-proxy-qwen
+  namespace: default
+  annotations:
+    higress.io/destination: "qwen-api.dns"
+spec:
+  ingressClassName: higress
+  rules:
+  - http:
+      paths:
+      - pathType: Prefix
+        path: "/v1"
+        backend:
+          service:
+            name: qwen-api
+            port:
+              number: 443

@@ -1,0 +1,83 @@
+# 演示 4：MCP Server 托管配置
+#
+# 场景：通过 Higress 托管 MCP Server，AI Agent 工具调用获得统一安全管控
+
+# 1. MCP Server 路由配置（将 /mcp/* 路由到 MCP Server 服务）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-server-demo
+  namespace: default
+  annotations:
+    higress.io/destination: "mcp-server.default.svc.cluster.local:8080"
+spec:
+  ingressClassName: higress
+  rules:
+  - host: "mcp.example.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/mcp"
+        backend:
+          service:
+            name: mcp-server
+            port:
+              number: 8080
+---
+# 2. 在路由上启用 key-auth 插件：统一认证
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: key-auth-mcp-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/key-auth:latest
+  matchRules:
+  - ingress:
+    - default/mcp-server-demo
+    config:
+      credentials:
+        - "agent-api-key-001"
+        - "agent-api-key-002"
+      keys:
+        - "Authorization"
+        - "x-api-key"
+---
+# 3. 在路由上启用 cluster-key-rate-limit 插件：速率限制（防止滥用）
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: rate-limit-mcp-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/cluster-key-rate-limit:latest
+  matchRules:
+  - ingress:
+    - default/mcp-server-demo
+    config:
+      limit_by_header: "x-api-key"
+      limit_keys:
+      - key: "agent-api-key-001"
+        query_per_second: 10
+        query_per_minute: 500
+      - key: "agent-api-key-002"
+        query_per_second: 5
+        query_per_minute: 200
+---
+# 4. 启用 log-request-response 插件：完整审计日志
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: audit-log-mcp-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/log-request-response:latest
+  matchRules:
+  - ingress:
+    - default/mcp-server-demo
+    config:
+      request_headers_allowed:
+        - "x-api-key"
+        - "content-type"
+      response_headers_allowed:
+        - "content-type"

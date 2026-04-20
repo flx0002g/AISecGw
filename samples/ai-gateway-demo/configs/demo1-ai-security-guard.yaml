@@ -1,0 +1,36 @@
+# 演示 1：AI 安全防护插件配置
+#
+# 应用方式：在 Higress 控制台 → 插件市场 → ai-security-guard → 配置
+# 或通过 kubectl apply -f 应用到目标路由的 WasmPlugin
+
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ai-security-guard-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-security-guard:latest
+  # 全局默认配置：检测所有 AI 请求的输入内容
+  defaultConfig:
+    serviceName: safecheck.dns
+    servicePort: 443
+    serviceHost: "green-cip.cn-shanghai.aliyuncs.com"
+    # 填写实际的阿里云 AK/SK
+    accessKey: "YOUR_ALIYUN_ACCESS_KEY"
+    secretKey: "YOUR_ALIYUN_SECRET_KEY"
+    # 启用输入内容合规检测
+    checkRequest: true
+    # 启用输出内容合规检测（生产可选）
+    checkResponse: false
+    # 使用阿里云内容安全 LLM 查询审核服务
+    action: "TextModerationPlus"
+    requestCheckService: "llm_query_moderation"
+    responseCheckService: "llm_response_moderation"
+    # 拦截风险等级：medium 及以上触发拦截
+    contentModerationLevelBar: "medium"
+    promptAttackLevelBar: "medium"
+    sensitiveDataLevelBar: "S2"
+    # 被拦截时返回的提示语
+    denyMessage: "很抱歉，您的问题包含不适当内容，我无法回答。如有其他问题欢迎继续提问。"
+    # 超时设置（毫秒）
+    timeout: 2000

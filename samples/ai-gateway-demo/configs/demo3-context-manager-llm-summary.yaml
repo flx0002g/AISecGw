@@ -1,0 +1,59 @@
+# 演示 3：LongBench 场景 —— LLM 语义摘要（llm_summary）策略配置
+#
+# 核心场景：用 LLM 生成高质量语义摘要，信息保留率 85-95%
+# 最新突破：相比提取式摘要，语义保留质量大幅提升，具备自动降级保障
+
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ai-context-manager-llm-summary-demo
+  namespace: higress-system
+spec:
+  url: oci://higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-context-manager:latest
+  defaultConfig:
+    # 使用 LLM 语义摘要策略（最新实现，对标 Google ADK LlmEventSummarizer）
+    summarize_strategy: llm_summary
+
+    # 每 5 轮对话触发一次摘要（对标 ADK compaction_interval）
+    compaction_interval: 5
+
+    # 压缩窗口间保留 2 条重叠消息，确保上下文连续性
+    overlap_size: 2
+
+    # Token 阈值触发：超过 2000 tokens 时也触发摘要
+    token_threshold: 2000
+
+    # 保护系统提示词不被压缩
+    preserve_system_message: true
+
+    # 强制保留最近 2 条消息
+    preserve_last_n: 2
+
+    # 保持 user-assistant 消息对完整性
+    preserve_turn_pairs: true
+
+    # 启用 Token 使用追踪
+    track_token_usage: true
+
+    # 启用上下文缓存提示（系统提示词超过 100 tokens 时添加缓存响应头）
+    cache_system_prompt: true
+    cache_min_tokens: 100
+
+    # LLM 摘要配置
+    llm_summary:
+      # 用于生成摘要的 LLM 服务（需在 Higress 中配置对应 DNS 服务）
+      service_name: "qwen.dns"
+      # 摘要使用轻量模型降低成本
+      model: "qwen-turbo"
+      # API Key（与 ai-proxy 插件共用即可）
+      api_key: "YOUR_DASHSCOPE_API_KEY"
+      # 摘要最大 Token 数
+      max_summary_tokens: 300
+      # LLM 调用超时（毫秒）
+      timeout: 30000
+      # 降级策略：LLM 调用失败时回退到提取式摘要（保障生产稳定性）
+      fallback_strategy: extractive
+      # 摘要前缀
+      summary_prefix: "[智能摘要] "
+      # 自定义摘要提示词（可选，默认提示词已适配中文场景）
+      summary_prompt_template: "请对以下对话历史进行简洁的总结，保留关键信息和上下文：\n\n{conversation}\n\n请用简洁的语言总结上述对话的主要内容和关键信息。"
