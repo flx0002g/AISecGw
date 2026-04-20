@@ -186,16 +186,13 @@ run_baseline() {
     echo -e "模拟 ${DEMO_ROUNDS} 轮对话，观察 Token 线性增长..."
     echo -e "上下文窗口限制：${CONTEXT_WINDOW_LIMIT} tokens\n"
 
-    local -a messages=()
     local -a token_history=()
     local simulated_tokens=0
 
-    # 添加系统提示和初始文档
+    # 添加系统提示和初始文档（仅用于 Token 估算，不实际发送）
     local sys_tokens
     sys_tokens=$(estimate_tokens "$LONG_DOCUMENT")
     simulated_tokens=$(( simulated_tokens + sys_tokens ))
-    messages+=("{\"role\": \"system\", \"content\": \"你是一个文档问答助手。\"}
-{\"role\": \"user\", \"content\": \"请阅读以下文档：${LONG_DOCUMENT}\"}")
 
     for (( round=1; round<=DEMO_ROUNDS; round++ )); do
         local question_idx=$(( (round - 1) % ${#QUESTIONS[@]} ))

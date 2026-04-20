@@ -24,6 +24,7 @@ MCP_ENDPOINT="${MCP_ENDPOINT:-/mcp}"
 DEMO_API_KEY="${DEMO_API_KEY:-agent-api-key-001}"
 
 # 颜色输出
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
