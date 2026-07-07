@@ -1,0 +1,230 @@
+{
+  "version": "Ver0.0.0.1",
+  "author": "Winicssec",
+  "validated_envs": ["gov", "finance", "manufacture", "internet"],
+  "categories": {
+    "saas_ai": {
+      "name": "云端SaaS AI（ChatGPT类）",
+      "risk_level": "high",
+      "description": "公网SaaS大模型，数据外发风险最高",
+      "sni": [
+        "api.openai.com",
+        "chat.openai.com",
+        "api.anthropic.com",
+        "claude.ai",
+        "gemini.google.com",
+        "generativelanguage.googleapis.com",
+        "cohere.ai",
+        "api.cohere.ai",
+        "perplexity.ai",
+        "api.perplexity.ai",
+        "groq.com",
+        "api.groq.com",
+        "deepseek.com",
+        "api.deepseek.com",
+        "chat.deepseek.com",
+        "mistral.ai",
+        "api.mistral.ai",
+        "chat.mistral.ai",
+        "lmsys.org",
+        "chat.lmsys.org",
+        "coze.com",
+        "www.coze.com",
+        "doubao.com",
+        "www.doubao.com",
+        "kimi.moonshot.cn",
+        "chat.moonshot.cn",
+        "chatglm.cn",
+        "tongyi.aliyun.com",
+        "qianwen.aliyun.com",
+        "yiyan.baidu.com",
+        "chat.baichuan-ai.com",
+        "chat.zhipu.ai",
+        "kling.kuaishou.com"
+      ],
+      "dns": [
+        "api.openai.com",
+        "chat.openai.com",
+        "api.anthropic.com",
+        "claude.ai",
+        "gemini.google.com",
+        "generativelanguage.googleapis.com",
+        "coze.com",
+        "doubao.com",
+        "kimi.moonshot.cn"
+      ],
+      "http_host": [
+        "api.openai.com",
+        "chat.openai.com",
+        "claude.ai",
+        "gemini.google.com"
+      ],
+      "user_agent": [
+        "ChatGPT",
+        "OpenAI",
+        "Claude",
+        "Gemini",
+        "Perplexity",
+        "Groq",
+        "DeepSeek"
+      ],
+      "ja3_md5": [
+        "e3b0c44298fc1c149afbf4c8996fb924",
+        "5d41402abc4b2a76b9719d911017c59"
+      ],
+      "paths": [
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/messages",
+        "/chat",
+        "/api/chat"
+      ]
+    },
+
+    "api_integrated_ai": {
+      "name": "API集成AI（后端调用LLM）",
+      "risk_level": "critical",
+      "description": "业务代码/脚本直接调用LLM API，隐蔽性极强",
+      "sni": [
+        "api.openai.com",
+        "api.anthropic.com",
+        "api.groq.com",
+        "api.deepseek.com",
+        "api.mistral.ai",
+        "dashscope.aliyuncs.com",
+        "aip.baidubce.com",
+        "open.bigmodel.cn",
+        "api.moonshot.cn"
+      ],
+      "http_headers": [
+        "Authorization: Bearer sk-",
+        "X-API-Key: sk-",
+        "OpenAI-Organization",
+        "Anthropic-Version"
+      ],
+      "body_keywords": [
+        "\"model\": \"gpt-4\"",
+        "\"model\": \"claude-3\"",
+        "\"prompt\":",
+        "\"messages\":",
+        "\"temperature\":"
+      ],
+      "ports": [443, 80, 3000, 8080, 5000],
+      "processes": ["python", "node", "curl", "wget", "go"]
+    },
+
+    "embedded_ai": {
+      "name": "嵌入式AI（SaaS内置/浏览器插件）",
+      "risk_level": "medium",
+      "description": "Office/IDE/协作工具内置AI、浏览器AI插件",
+      "sni": [
+        "copilot.github.com",
+        "api.githubcopilot.com",
+        "cursor.sh",
+        "api.cursor.sh",
+        "codeium.com",
+        "windsurf.com",
+        "continue.dev",
+        "notion.so",
+        "gamma.app",
+        "otter.ai",
+        "fireflies.ai"
+      ],
+      "browser_extensions": [
+        "ChatGPT",
+        "GitHub Copilot",
+        "Codeium",
+        "Cursor",
+        "Notion AI",
+        "GrammarlyGO"
+      ],
+      "http_paths": [
+        "/copilot",
+        "/api/copilot",
+        "/ai",
+        "/api/ai"
+      ],
+      "ja3_md5": [
+        "a1b2c3d4e5f67890",
+        "f6e5d4c3b2a10987"
+      ]
+    },
+
+    "local_deployed_ai": {
+      "name": "本地部署AI（Ollama/LM Studio）",
+      "risk_level": "medium",
+      "description": "内网本地运行大模型，数据不出网但不可控",
+      "ports": [11434, 8080, 3000, 54321, 18789],
+      "processes": ["ollama", "lmstudio", "text-generation-webui", "llama.cpp"],
+      "http_paths": [
+        "/api/generate",
+        "/api/chat",
+        "/v1/completions",
+        "/health",
+        "/models"
+      ],
+      "http_headers": [
+        "X-Ollama-Version",
+        "X-LMStudio"
+      ],
+      "dns": ["ollama.com", "lmstudio.ai", "github.com"],
+      "tls_cn": ["Ollama", "LM Studio", "localhost"]
+    },
+
+    "ai_agent": {
+      "name": "AI Agent（OpenClaw/WinClaw/LangChain/自定义）",
+      "risk_level": "critical",
+      "description": "自主智能体，可链式调用工具、长期驻留、数据窃取",
+      "sni": [
+        "models.openclaw.ai",
+        "api.openclaw.ai",
+        "langchain.com",
+        "api.langchain.com",
+        "winclaw.ai",
+        "localhost",
+        "127.0.0.1"
+      ],
+      "ports": [18789, 8080, 3000, 54321, 14918],
+      "processes": ["WinClaw", "node", "python", "openclaw", "langchain", "agent"],
+      "http_paths": [
+        "/health",
+        "/v1/responses",
+        "/control",
+        "/api/v1/agent",
+        "/chain",
+        "/tool"
+      ],
+      "http_headers": [
+        "X-OpenClaw-Version",
+        "X-OpenClaw-Agent-Id",
+        "X-LangChain-Version"
+      ],
+      "user_agent": [
+        "OpenClaw-Gateway",
+        "openclaw",
+        "winclaw",
+        "LangChain Agent"
+      ],
+      "ja3_md5": [
+        "bff156236729f020a611d4b2e3f7889",
+        "9d418c90f82bb414912bfe8b26621e4"
+      ],
+      "dns": [
+        "models.openclaw.ai",
+        "api.openai.com",
+        "registry.npmjs.org"
+      ]
+    }
+  },
+  "match_logic": {
+    "min_hit": 1,
+    "priority": ["ai_agent", "api_integrated_ai", "saas_ai", "embedded_ai", "local_deployed_ai"],
+    "rules": {
+      "ai_agent": ["sni", "ports", "http_paths", "http_headers", "ja3_md5"],
+      "api_integrated_ai": ["sni", "http_headers", "body_keywords"],
+      "saas_ai": ["sni", "dns", "ja3_md5"],
+      "embedded_ai": ["sni", "browser_extensions"],
+      "local_deployed_ai": ["ports", "processes", "http_paths"]
+    }
+  }
+}
