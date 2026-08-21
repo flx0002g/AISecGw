@@ -147,7 +147,11 @@ template:
         - containerPort: 15090
           protocol: TCP
           name: http-envoy-prom
-        {{- if or .Values.global.local .Values.global.kind }}
+        {{- /* IR-076 HA: hostPort binds the node port directly, which collides on
+               a single-node cluster when replicas > 1. Keep it for the single
+               replica case and rely on the service (NodePort/LoadBalancer) for
+               multi-replica deployments. */}}
+        {{- if and (or .Values.global.local .Values.global.kind) (eq (int .Values.gateway.replicas) 1) }}
         - containerPort: {{ .Values.gateway.httpPort }}
           hostPort:  {{ .Values.gateway.httpPort }}
           name: http

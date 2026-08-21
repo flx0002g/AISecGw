@@ -82,8 +82,9 @@ restartPolicy: Always
 schedulerName: default-scheduler
 
 service:
-  type: ClusterIP
+  type: NodePort
   port: 8080
+  nodePort: 30080
 
 ingress:
   enabled: false

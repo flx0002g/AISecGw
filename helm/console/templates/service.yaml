@@ -12,5 +12,8 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+{{- if .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+{{- end }}
   selector:
     {{- include "higress-console.selectorLabels" . | nindent 4 }}

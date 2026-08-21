@@ -24,11 +24,10 @@ metadata:
     {{- .Values.gateway.annotations | toYaml | nindent 4 }}
 spec:
   {{- if not .Values.gateway.autoscaling.enabled }}
-  {{- if not (or .Values.global.local .Values.global.kind) }}
+  {{- /* IR-076 HA: allow multiple replicas even on local/kind single-node clusters;
+         hostPort is only rendered for a single replica (see _pod.tpl), so the
+         LoadBalancer/NodePort service remains the access path for replicas>1. */}}
   replicas: {{ .Values.gateway.replicas }}
-  {{- else }}
-  replicas: 1
-  {{- end }}
   {{- end }}
   selector:
     matchLabels:
