@@ -36,6 +36,36 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            {{- if .Values.asg.enabled }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.asg.mysql.url | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.asg.mysql.secretName }}
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.asg.mysql.secretName }}
+                  key: password
+            - name: ASG_MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.asg.mysql.secretName }}
+                  key: username
+            - name: ASG_MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.asg.mysql.secretName }}
+                  key: password
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: {{ .Values.asg.mysql.ddlAuto | quote }}
+            - name: SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT
+              value: {{ .Values.asg.mysql.dialect | quote }}
+            - name: ASG_COLLECTOR_TOKEN
+              value: {{ .Values.asg.collectorToken | quote }}
+            {{- end }}
             - name: HIGRESS_CONSOLE_NS
               value: {{ .Release.Namespace }}
             - name: HIGRESS_CONSOLE_SECRET_NAME

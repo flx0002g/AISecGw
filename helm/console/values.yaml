@@ -144,3 +144,13 @@ pluginServer:
   # -- Plugin image namespace for built-in plugins. If set, will override the default namespace in plugins.properties.
   # Default namespace is "plugins". Example: "my-plugins"
   imageNamespace: ""
+
+# ASG extension runtime configuration (s3b-rest: externalize application.properties customizations)
+asg:
+  enabled: false
+  collectorToken: "wnt-asg-collector-2026"
+  mysql:
+    url: "jdbc:mysql://asg-mysql.higress-system:3306/asg_security?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+    secretName: "asg-console-mysql"
+    ddlAuto: "update"
+    dialect: "org.hibernate.dialect.MySQL8Dialect"
