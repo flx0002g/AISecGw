@@ -203,7 +203,7 @@ func matchAutoRoutingRule(config ModelRouterConfig, userMessage string) (string,
 
 func handleJsonBody(ctx wrapper.HttpContext, config ModelRouterConfig, body []byte) types.Action {
 	if !json.Valid(body) {
-		log.Errorf("invalid json body, length=%d, content=%s", len(body), string(body))
+		log.Error("invalid json body")
 		return types.ActionContinue
 	}
 	modelValue := gjson.GetBytes(body, config.modelKey).String()

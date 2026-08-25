@@ -1,9 +1,6 @@
 out
 *.out
 *.tgz
-*.tar.gz
-*.deb
-*.crt
 *.wasm
 .DS_Store
 coverage.xml
