@@ -84,13 +84,24 @@ func NetworkingIngressAvailable(client kube.Client) bool {
 	return runningVersion.AtLeast(version118)
 }
 
-// SortIngressByCreationTime sorts the list of config objects in ascending order by their creation time (if available).
+// SortIngressByCreationTime sorts the list of config objects in ascending
+// order by their creation time (if available). When two objects share the
+// same creation timestamp, ties are broken by namespace first and then by
+// name, both in lexicographic order.
+//
+// Note: this sorter does NOT actively identify canary ingresses. A base
+// ingress sorting before its "<name>-canary-*" variants is merely a
+// lexicographic consequence of the namespace/name ordering, and is only
+// guaranteed when the canary names share the base name as a prefix. Canary
+// ingresses named without that prefix may sort in any order relative to the
+// base, since canary status is determined by annotations rather than by name.
 func SortIngressByCreationTime(configs []config.Config) {
 	sort.Slice(configs, func(i, j int) bool {
 		if configs[i].CreationTimestamp == configs[j].CreationTimestamp {
-			in := configs[i].Name + "." + configs[i].Namespace
-			jn := configs[j].Name + "." + configs[j].Namespace
-			return in < jn
+			if configs[i].Namespace != configs[j].Namespace {
+				return configs[i].Namespace < configs[j].Namespace
+			}
+			return configs[i].Name < configs[j].Name
 		}
 		return configs[i].CreationTimestamp.Before(configs[j].CreationTimestamp)
 	})
@@ -176,7 +187,7 @@ func SortHTTPRoutes(routes []*WrapperHTTPRoute) {
 
 	isAllCatch := func(route *WrapperHTTPRoute) bool {
 		if route.OriginPathType == Prefix && route.OriginPath == "/" {
-			if route.HTTPRoute.Match == nil {
+			if len(route.HTTPRoute.Match) == 0 {
 				return true
 			}
 
@@ -213,6 +224,16 @@ func SortHTTPRoutes(routes []*WrapperHTTPRoute) {
 				return in > jn
 			}
 
+			lenI, lenJ := len(routes[i].HTTPRoute.Match), len(routes[j].HTTPRoute.Match)
+			if lenI == 0 && lenJ == 0 {
+				return false
+			}
+			if lenI == 0 {
+				return false
+			}
+			if lenJ == 0 {
+				return true
+			}
 			match1, match2 := routes[i].HTTPRoute.Match[0], routes[j].HTTPRoute.Match[0]
 			// methods
 			if in, jn := len(match1.Method.GetRegex()), len(match2.Method.GetRegex()); in != jn {
@@ -364,6 +385,8 @@ func getLoadBalancerIp(svc *v1.Service) []string {
 			hostName := strings.TrimSuffix(ingress.Hostname, SvcHostNameSuffix)
 			if net.ParseIP(hostName) != nil {
 				out = append(out, hostName)
+			} else {
+				out = append(out, ingress.Hostname)
 			}
 		}
 	}
@@ -389,7 +412,8 @@ func getSvcIpList(svcList []*v1.Service) []string {
 
 func SortLbIngressList(lbi []v1.LoadBalancerIngress) func(int, int) bool {
 	return func(i int, j int) bool {
-		return lbi[i].IP < lbi[j].IP
+		return loadBalancerIngressAddress(lbi[i].IP, lbi[i].Hostname) <
+			loadBalancerIngressAddress(lbi[j].IP, lbi[j].Hostname)
 	}
 }
 
@@ -397,7 +421,11 @@ func GetLbStatusList(svcList []*v1.Service) []v1.LoadBalancerIngress {
 	svcIpList := getSvcIpList(svcList)
 	lbi := make([]v1.LoadBalancerIngress, 0, len(svcIpList))
 	for _, ep := range svcIpList {
-		lbi = append(lbi, v1.LoadBalancerIngress{IP: ep})
+		if net.ParseIP(ep) != nil {
+			lbi = append(lbi, v1.LoadBalancerIngress{IP: ep})
+		} else {
+			lbi = append(lbi, v1.LoadBalancerIngress{Hostname: ep})
+		}
 	}
 
 	sort.SliceStable(lbi, SortLbIngressList(lbi))
@@ -406,7 +434,8 @@ func GetLbStatusList(svcList []*v1.Service) []v1.LoadBalancerIngress {
 
 func SortLbIngressListV1(lbi []networkingv1.IngressLoadBalancerIngress) func(int, int) bool {
 	return func(i int, j int) bool {
-		return lbi[i].IP < lbi[j].IP
+		return loadBalancerIngressAddress(lbi[i].IP, lbi[i].Hostname) <
+			loadBalancerIngressAddress(lbi[j].IP, lbi[j].Hostname)
 	}
 }
 
@@ -414,7 +443,11 @@ func GetLbStatusListV1(svcList []*v1.Service) []networkingv1.IngressLoadBalancer
 	svcIpList := getSvcIpList(svcList)
 	lbi := make([]networkingv1.IngressLoadBalancerIngress, 0, len(svcIpList))
 	for _, ep := range svcIpList {
-		lbi = append(lbi, networkingv1.IngressLoadBalancerIngress{IP: ep})
+		if net.ParseIP(ep) != nil {
+			lbi = append(lbi, networkingv1.IngressLoadBalancerIngress{IP: ep})
+		} else {
+			lbi = append(lbi, networkingv1.IngressLoadBalancerIngress{Hostname: ep})
+		}
 	}
 
 	sort.SliceStable(lbi, SortLbIngressListV1(lbi))
@@ -423,7 +456,8 @@ func GetLbStatusListV1(svcList []*v1.Service) []networkingv1.IngressLoadBalancer
 
 func SortLbIngressListV1Beta1(lbi []networkingv1beta1.IngressLoadBalancerIngress) func(int, int) bool {
 	return func(i int, j int) bool {
-		return lbi[i].IP < lbi[j].IP
+		return loadBalancerIngressAddress(lbi[i].IP, lbi[i].Hostname) <
+			loadBalancerIngressAddress(lbi[j].IP, lbi[j].Hostname)
 	}
 }
 
@@ -431,9 +465,20 @@ func GetLbStatusListV1Beta1(svcList []*v1.Service) []networkingv1beta1.IngressLo
 	svcIpList := getSvcIpList(svcList)
 	lbi := make([]networkingv1beta1.IngressLoadBalancerIngress, 0, len(svcIpList))
 	for _, ep := range svcIpList {
-		lbi = append(lbi, networkingv1beta1.IngressLoadBalancerIngress{IP: ep})
+		if net.ParseIP(ep) != nil {
+			lbi = append(lbi, networkingv1beta1.IngressLoadBalancerIngress{IP: ep})
+		} else {
+			lbi = append(lbi, networkingv1beta1.IngressLoadBalancerIngress{Hostname: ep})
+		}
 	}
 
 	sort.SliceStable(lbi, SortLbIngressListV1Beta1(lbi))
 	return lbi
+}
+
+func loadBalancerIngressAddress(ip, hostname string) string {
+	if ip != "" {
+		return ip
+	}
+	return hostname
 }

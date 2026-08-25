@@ -10,6 +10,8 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
+	google.golang.org/protobuf v1.36.6
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -34,6 +36,4 @@ require (
 	github.com/tidwall/resp v0.1.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

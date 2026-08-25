@@ -1,9 +1,9 @@
 dependencies:
 - name: higress-core
   repository: file://../core
-  version: 2.2.2
+  version: 2.2.4
 - name: higress-console
   repository: file://../console
   version: 2.2.2
-digest: sha256:5d89b44977fd63691c0d5174d7b0ceb32e43e1c691e0d73567e5410413058ae5
-generated: "2026-06-08T14:18:18.04591792+08:00"
+digest: sha256:7709d1eabc83b967ad6e779e35cfd860009c3bf23c98742031ae776b85475f1e
+generated: "2026-08-25T15:25:53.765331614+08:00"

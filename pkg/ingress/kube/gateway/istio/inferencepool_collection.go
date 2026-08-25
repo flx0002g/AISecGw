@@ -24,8 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	inferencev1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
-	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gateway "sigs.k8s.io/gateway-api/apis/v1beta1"
+	gateway "sigs.k8s.io/gateway-api/apis/v1"
 
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/schema/gvk"
@@ -52,10 +51,8 @@ const (
 // ControllerName is the name of this controller for labeling resources it manages
 const ControllerName = "inference-controller"
 
-var supportedControllers = getSupportedControllers()
-
-func getSupportedControllers() sets.Set[gatewayv1.GatewayController] {
-	ret := sets.New[gatewayv1.GatewayController]()
+func getSupportedControllers() sets.Set[gateway.GatewayController] {
+	ret := sets.New[gateway.GatewayController]()
 	for _, controller := range builtinClasses {
 		ret.Insert(controller)
 	}
@@ -241,7 +238,7 @@ func findGatewayParents(
 		for _, parentStatus := range route.Status.Parents {
 			// Only consider parents managed by our supported controllers (from supportedControllers variable)
 			// This filters out parents from other controllers we don't manage
-			if !supportedControllers.Contains(parentStatus.ControllerName) {
+			if !getSupportedControllers().Contains(parentStatus.ControllerName) {
 				continue
 			}
 
@@ -289,9 +286,9 @@ func routeReferencesInferencePool(route *gateway.HTTPRoute, pool *inferencev1.In
 }
 
 // isInferencePoolBackendRef checks if a BackendRef is pointing to an InferencePool
-func isInferencePoolBackendRef(backendRef gatewayv1.BackendRef) bool {
-	return ptr.OrEmpty(backendRef.Group) == gatewayv1.Group(gvk.InferencePool.Group) &&
-		ptr.OrEmpty(backendRef.Kind) == gatewayv1.Kind(gvk.InferencePool.Kind)
+func isInferencePoolBackendRef(backendRef gateway.BackendRef) bool {
+	return ptr.OrEmpty(backendRef.Group) == gateway.Group(gvk.InferencePool.Group) &&
+		ptr.OrEmpty(backendRef.Kind) == gateway.Kind(gvk.InferencePool.Kind)
 }
 
 // calculateSingleParentStatus calculates the status for a single gateway parent
@@ -354,7 +351,7 @@ func calculateAcceptedStatus(
 		// Check if this route has our gateway as a parent and if it's accepted
 		for _, parentStatus := range route.Status.Parents {
 			// Only consider parents managed by supported controllers
-			if !supportedControllers.Contains(parentStatus.ControllerName) {
+			if !getSupportedControllers().Contains(parentStatus.ControllerName) {
 				continue
 			}
 
@@ -367,7 +364,7 @@ func calculateAcceptedStatus(
 			if string(parentStatus.ParentRef.Name) == gatewayParent.Name && gatewayNamespace == gatewayParent.Namespace {
 				// Check if this parent is accepted
 				for _, parentCondition := range parentStatus.Conditions {
-					if parentCondition.Type == string(gatewayv1.RouteConditionAccepted) {
+					if parentCondition.Type == string(gateway.RouteConditionAccepted) {
 						if parentCondition.Status == metav1.ConditionTrue {
 							return &condition{
 								reason:  string(inferencev1.InferencePoolReasonAccepted),
@@ -504,15 +501,16 @@ func InferencePoolServiceName(poolName string) (string, error) {
 }
 
 func translateShadowServiceToService(existingLabels map[string]string, shadow shadowServiceInfo, extRef extRefInfo) *corev1.Service {
-	// Create the ports used by the shadow service
+	// Create one service port for each InferencePool targetPort so Istio discovers
+	// all target endpoints. Dummy ports 54321, 54322, ... map to the real targetPorts.
+	baseDummyPort := int32(54321)
 	ports := make([]corev1.ServicePort, 0, len(shadow.targetPorts))
-	dummyPort := int32(54321) // Dummy port, not used for anything
-	for i, port := range shadow.targetPorts {
+	for i, targetPort := range shadow.targetPorts {
 		ports = append(ports, corev1.ServicePort{
-			Name:       "port" + strconv.Itoa(i),
+			Name:       fmt.Sprintf("http-%d", i),
 			Protocol:   corev1.ProtocolTCP,
-			Port:       dummyPort + int32(i),
-			TargetPort: intstr.FromInt(int(port.port)),
+			Port:       baseDummyPort + int32(i),
+			TargetPort: intstr.FromInt(int(targetPort.port)),
 		})
 	}
 

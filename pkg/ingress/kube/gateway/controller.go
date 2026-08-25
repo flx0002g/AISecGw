@@ -77,10 +77,13 @@ func NewController(client kube.Client, options common.Options, xdsUpdater model.
 		ClusterID:    clusterId,
 		Revision:     higressconfig.Revision,
 	}
-	istioController := istiogateway.NewController(client, client.CrdWatcher().WaitForCRD, opt, xdsUpdater)
+	istiogateway.SetGatewayClassName(options.GatewayClass)
+	defaultGatewaySelector := map[string]string{}
 	if options.GatewaySelectorKey != "" {
-		istioController.DefaultGatewaySelector = map[string]string{options.GatewaySelectorKey: options.GatewaySelectorValue}
+		defaultGatewaySelector[options.GatewaySelectorKey] = options.GatewaySelectorValue
 	}
+	istioController := istiogateway.NewControllerWithDefaultGatewaySelector(
+		client, client.CrdWatcher().WaitForCRD, opt, xdsUpdater, defaultGatewaySelector)
 
 	var statusManager *status.Manager = nil
 	if options.EnableStatus {

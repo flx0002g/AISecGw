@@ -115,6 +115,28 @@ func TestBedrockStreamPreservesClaudeNativeIndexesAndStops(t *testing.T) {
 	assert.Equal(t, 2, *events[0].Payload.Index)
 }
 
+func TestBedrockStreamToolCallArgumentDeltaIncludesFunctionType(t *testing.T) {
+	provider := &bedrockProvider{}
+	ctx := newMockMultipartHttpContext()
+
+	chunk, err := provider.convertEventFromBedrockToOpenAI(ctx, ConverseStreamEvent{
+		ContentBlockIndex: 0,
+		Delta: &converseStreamEventContentBlockDelta{
+			ToolUse: &toolUseBlockDelta{Input: `{"path":"/tmp/example"}`},
+		},
+	})
+	require.NoError(t, err)
+
+	body := strings.TrimPrefix(strings.TrimSpace(string(chunk)), ssePrefix)
+	var event chatCompletionResponse
+	require.NoError(t, json.Unmarshal([]byte(body), &event))
+	require.Len(t, event.Choices, 1)
+	require.NotNil(t, event.Choices[0].Delta)
+	require.Len(t, event.Choices[0].Delta.ToolCalls, 1)
+	assert.Equal(t, "function", event.Choices[0].Delta.ToolCalls[0].Type)
+	assert.Equal(t, `{"path":"/tmp/example"}`, event.Choices[0].Delta.ToolCalls[0].Function.Arguments)
+}
+
 func TestBedrockResponsePreservesClaudeNativeRedactedThinking(t *testing.T) {
 	provider := &bedrockProvider{}
 	ctx := newMockMultipartHttpContext()
@@ -367,7 +389,7 @@ func TestBedrockRequestPreservesClaudeNativeThinkingBudget(t *testing.T) {
 	assert.Equal(t, float64(8192), request.AdditionalModelRequestFields["thinking"].(map[string]interface{})["budget_tokens"])
 }
 
-func TestBedrockRequestMapsAdaptiveOutputEffortIntoThinking(t *testing.T) {
+func TestBedrockRequestMapsAdaptiveEffortIntoOutputConfig(t *testing.T) {
 	provider := &bedrockProvider{}
 	openaiBody, err := (&ClaudeToOpenAIConverter{}).ConvertClaudeRequestToOpenAI([]byte(`{
 		"model":"claude",
@@ -386,8 +408,10 @@ func TestBedrockRequestMapsAdaptiveOutputEffortIntoThinking(t *testing.T) {
 	require.NoError(t, json.Unmarshal(body, &request))
 	thinking := request.AdditionalModelRequestFields["thinking"].(map[string]interface{})
 	assert.Equal(t, "adaptive", thinking["type"])
-	assert.Equal(t, "high", thinking["effort"])
-	assert.NotContains(t, request.AdditionalModelRequestFields, "output_config")
+	assert.NotContains(t, thinking, "effort")
+	require.Contains(t, request.AdditionalModelRequestFields, "output_config")
+	outputConfig := request.AdditionalModelRequestFields["output_config"].(map[string]interface{})
+	assert.Equal(t, "high", outputConfig["effort"])
 	assert.NotContains(t, request.AdditionalModelRequestFields, "anthropic_beta")
 }
 

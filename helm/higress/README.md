@@ -161,12 +161,15 @@ The command removes all the Kubernetes components associated with the chart and 
 | global.caAddress | string | `""` | The customized CA address to retrieve certificates for the pods in the cluster. CSR clients such as the Istio Agent and ingress gateways can use this to specify the CA endpoint. If not set explicitly, default to the Istio discovery address. |
 | global.caName | string | `""` | The name of the CA for workload certificates. For example, when caName=GkeWorkloadCertificate, GKE workload certificates will be used as the certificates for workloads. The default value is "" and when caName="", the CA will be configured by other mechanisms (e.g., environmental variable CA_PROVIDER). |
 | global.configCluster | bool | `false` | Configure a remote cluster as the config cluster for an external istiod. |
+| global.createIngressClass | bool | `true` | Whether to create the IngressClass resource for global.ingressClass. Set this to false when reusing an existing IngressClass, for example during Nginx Ingress migration. |
 | global.defaultPodDisruptionBudget | object | `{"enabled":false}` | enable pod disruption budget for the control plane, which is used to ensure Istio control plane components are gradually upgraded or recovered. |
 | global.defaultResources | object | `{"requests":{"cpu":"10m"}}` | A minimal set of requested resources to applied to all deployments so that Horizontal Pod Autoscaler will be able to function (if set). Each component can overwrite these default values by adding its own resources block in the relevant section below and setting the desired resources values. |
 | global.defaultUpstreamConcurrencyThreshold | int | `10000` |  |
 | global.disableAlpnH2 | bool | `false` | Whether to disable HTTP/2 in ALPN |
+| global.enableAlphaGatewayAPI | bool | `false` | If true, Higress Controller will monitor Gateway API resources that have not reached v1 yet |
 | global.enableDeltaXDS | bool | `true` | Whether to enable Istio delta xDS, default is false. |
 | global.enableGatewayAPI | bool | `true` | If true, Higress Controller will monitor Gateway API resources as well |
+| global.enableGatewayAPIDeploymentController | bool | `false` | If true, provision an isolated Deployment and Service for each managed Gateway API Gateway. This is opt-in to preserve the default shared Higress gateway deployment model. |
 | global.enableH3 | bool | `false` |  |
 | global.enableIPv6 | bool | `false` |  |
 | global.enableInferenceExtension | bool | `false` | If true, enable Gateway API Inference Extension support |
@@ -179,6 +182,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | global.enableSRDS | bool | `true` |  |
 | global.enableStatus | bool | `true` | If true, Higress Controller will update the status field of Ingress resources. When migrating from Nginx Ingress, in order to avoid status field of Ingress objects being overwritten, this parameter needs to be set to false, so Higress won't write the entry IP to the status field of the corresponding Ingress object. |
 | global.externalIstiod | bool | `false` | Configure a remote cluster data plane controlled by an external istiod. When set to true, istiod is not deployed locally and only a subset of the other discovery charts are enabled. |
+| global.gatewayClass | string | `"higress"` | GatewayClassName used by Higress to select Gateway API resources. The default value higress uses controllerName higress.io/gateway-controller. A custom value, for example higress-internal, uses controllerName higress.io/gateway-controller-higress-internal. |
 | global.hostRDSMergeSubset | bool | `false` |  |
 | global.hub | string | `"higress-registry.cn-hangzhou.cr.aliyuncs.com"` | Default hub (registry) for Higress images. For Higress deployments, images are pulled from: {hub}/higress/{image} For built-in plugins, images are pulled from: {hub}/{pluginNamespace}/{plugin-name} Change this to use a mirror registry closer to your deployment region for faster image pulls. |
 | global.imagePullPolicy | string | `""` | Specify image pull policy if default behavior isn't desired. Default behavior: latest images will be Always else IfNotPresent. |
@@ -215,7 +219,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | global.proxy.excludeInboundPorts | string | `""` |  |
 | global.proxy.excludeOutboundPorts | string | `""` |  |
 | global.proxy.holdApplicationUntilProxyStarts | bool | `false` | Controls if sidecar is injected at the front of the container list and blocks the start of the other containers until the proxy is ready |
-| global.proxy.image | string | `"proxyv2"` |  |
+| global.proxy.image | string | `"gateway"` |  |
 | global.proxy.includeIPRanges | string | `"*"` | istio egress capture allowlist https://istio.io/docs/tasks/traffic-management/egress.html#calling-external-services-directly example: includeIPRanges: "172.30.0.0/16,172.20.0.0/16" would only capture egress traffic on those two IP Ranges, all other outbound traffic would be allowed by the sidecar |
 | global.proxy.includeInboundPorts | string | `"*"` |  |
 | global.proxy.includeOutboundPorts | string | `""` |  |
@@ -230,7 +234,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | global.proxy.resources | object | `{"limits":{"cpu":"2000m","memory":"1024Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Resources for the sidecar. |
 | global.proxy.statusPort | int | `15020` | Default port for Pilot agent health checks. A value of 0 will disable health checking. |
 | global.proxy.tracer | string | `""` | Specify which tracer to use. One of: lightstep, datadog, stackdriver. If using stackdriver tracer outside GCP, set env GOOGLE_APPLICATION_CREDENTIALS to the GCP credential file. |
-| global.proxy_init.image | string | `"proxyv2"` | Base name for the proxy_init container, used to configure iptables. |
+| global.proxy_init.image | string | `"gateway"` | Base name for the proxy_init container, used to configure iptables. |
 | global.proxy_init.resources.limits.cpu | string | `"2000m"` |  |
 | global.proxy_init.resources.limits.memory | string | `"1024Mi"` |  |
 | global.proxy_init.resources.requests.cpu | string | `"10m"` |  |

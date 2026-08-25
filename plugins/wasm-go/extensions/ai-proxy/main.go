@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -35,6 +36,8 @@ const (
 	ctxOriginalAuth                = "original_auth"
 	ctxUpstreamErrorResponseStatus = "upstream_error_response_status"
 )
+
+const headerContentLength = "Content-Length"
 
 type pair[K, V any] struct {
 	key   K
@@ -69,6 +72,7 @@ var (
 		{provider.PathOpenAIResponses, provider.ApiNameResponses},
 		{provider.PathOpenAIVideos, provider.ApiNameVideos},
 		// Anthropic style
+		{provider.PathAnthropicMessagesCountTokens, provider.ApiNameAnthropicCountTokens},
 		{provider.PathAnthropicMessages, provider.ApiNameAnthropicMessages},
 		{provider.PathAnthropicComplete, provider.ApiNameAnthropicComplete},
 		// Cohere style
@@ -138,11 +142,11 @@ func parseOverrideRuleConfig(json gjson.Result, global config.PluginConfig, plug
 
 	pluginConfig.FromJson(json)
 	if err := pluginConfig.Validate(); err != nil {
-		log.Errorf("overriden rule config is invalid: %v", err)
+		log.Errorf("overridden rule config is invalid: %v", err)
 		return err
 	}
 	if err := pluginConfig.Complete(); err != nil {
-		log.Errorf("failed to apply overriden rule config: %v", err)
+		log.Errorf("failed to apply overridden rule config: %v", err)
 		return err
 	}
 
@@ -279,6 +283,19 @@ func onHttpRequestHeader(ctx wrapper.HttpContext, pluginConfig config.PluginConf
 	// allowing plugins to inspect or modify the response correctly
 	_ = proxywasm.RemoveHttpRequestHeader("Accept-Encoding")
 
+	_, hasRequestBodyHandler := activeProvider.(provider.RequestBodyHandler)
+	hasRequestBody := ctx.HasRequestBody()
+	if hasRequestBody && hasRequestBodyHandler && requestContentLengthExceedsLimit(defaultMaxBodyBytes) {
+		_ = proxywasm.SendHttpResponseWithDetail(
+			http.StatusRequestEntityTooLarge,
+			"request_payload_too_large",
+			util.CreateHeaders(util.HeaderContentType, util.MimeTypeTextPlain),
+			[]byte("request payload too large"),
+			-1,
+		)
+		return types.ActionPause
+	}
+
 	if handler, ok := activeProvider.(provider.RequestHeadersHandler); ok {
 		// Set the apiToken for the current request.
 		providerConfig.SetApiTokenInUse(ctx)
@@ -295,10 +312,8 @@ func onHttpRequestHeader(ctx wrapper.HttpContext, pluginConfig config.PluginConf
 			return types.ActionContinue
 		}
 
-		_, hasRequestBodyHandler := activeProvider.(provider.RequestBodyHandler)
-		hasRequestBody := ctx.HasRequestBody()
 		if hasRequestBody && hasRequestBodyHandler {
-			_ = proxywasm.RemoveHttpRequestHeader("Content-Length")
+			_ = proxywasm.RemoveHttpRequestHeader(headerContentLength)
 			ctx.SetRequestBodyBufferLimit(defaultMaxBodyBytes)
 			// Delay the header processing to allow changing in OnRequestBody
 			return types.HeaderStopIteration
@@ -308,6 +323,40 @@ func onHttpRequestHeader(ctx wrapper.HttpContext, pluginConfig config.PluginConf
 	}
 
 	return types.ActionContinue
+}
+
+func requestContentLengthExceedsLimit(limit uint32) bool {
+	contentLength, _ := proxywasm.GetHttpRequestHeader(headerContentLength)
+	if contentLengthExceedsLimit(contentLength, limit) {
+		return true
+	}
+
+	headers, err := proxywasm.GetHttpRequestHeaders()
+	if err != nil {
+		return false
+	}
+	for _, header := range headers {
+		if strings.EqualFold(header[0], headerContentLength) {
+			return contentLengthExceedsLimit(header[1], limit)
+		}
+	}
+	return false
+}
+
+func contentLengthExceedsLimit(contentLength string, limit uint32) bool {
+	contentLength = strings.TrimSpace(contentLength)
+	if contentLength == "" {
+		return false
+	}
+
+	length, err := strconv.ParseUint(contentLength, 10, 64)
+	if err != nil {
+		if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
+			return true
+		}
+		return false
+	}
+	return length > uint64(limit)
 }
 
 func onHttpRequestBody(ctx wrapper.HttpContext, pluginConfig config.PluginConfig, body []byte) types.Action {
@@ -337,7 +386,7 @@ func onHttpRequestBody(ctx wrapper.HttpContext, pluginConfig config.PluginConfig
 		// 仅 /v1/chat/completions 和 /v1/completions 接口支持 stream_options 参数
 		// generic provider 不做能力映射，不添加 stream_options
 		if providerConfig.IsOpenAIProtocol() && !providerConfig.IsGeneric() && (apiName == provider.ApiNameChatCompletion || apiName == provider.ApiNameCompletion) {
-			newBody = normalizeOpenAiRequestBody(newBody)
+			newBody = normalizeOpenAiRequestBody(newBody, providerConfig.IsStreamUsageStatsDisabled())
 		}
 		log.Debugf("[onHttpRequestBody] newBody=%s", newBody)
 		body = newBody
@@ -721,7 +770,10 @@ func convertResponseBodyToClaude(ctx wrapper.HttpContext, body []byte) ([]byte, 
 	return convertedBody, nil
 }
 
-func normalizeOpenAiRequestBody(body []byte) []byte {
+func normalizeOpenAiRequestBody(body []byte, disableStreamUsageStats bool) []byte {
+	if disableStreamUsageStats {
+		return body
+	}
 	var err error
 	// Default setting include_usage.
 	if gjson.GetBytes(body, "stream").Bool() && (!gjson.GetBytes(body, "stream_options").Exists() || !gjson.GetBytes(body, "stream_options.include_usage").Exists()) {

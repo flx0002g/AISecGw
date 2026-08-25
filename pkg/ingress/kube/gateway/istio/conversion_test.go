@@ -77,6 +77,54 @@ var ports = []*model.Port{
 	},
 }
 
+func TestExtractManagedGatewayService(t *testing.T) {
+	previous := enableGatewayAPIDeploymentController
+	enableGatewayAPIDeploymentController = true
+	t.Cleanup(func() {
+		enableGatewayAPIDeploymentController = previous
+	})
+
+	gw := &k8s.Gateway{
+		ObjectMeta: metav1.ObjectMeta{Name: "example", Namespace: "gateways"},
+		Spec: k8s.GatewaySpec{
+			GatewayClassName: "higress",
+		},
+	}
+	services, useDefault, err := extractGatewayServices("cluster.local", gw, classInfo{})
+	if err != nil {
+		t.Fatalf("extractGatewayServices() error = %v", err)
+	}
+	if useDefault {
+		t.Fatal("managed Gateway unexpectedly selected the shared gateway service")
+	}
+	if got, want := services, []string{"example-higress.gateways.svc.cluster.local"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("extractGatewayServices() = %v, want %v", got, want)
+	}
+	if got, want := managedGatewaySelector(gw.Name, &gw.Spec), map[string]string{
+		"gateway.networking.k8s.io/gateway-name": "example",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("managedGatewaySelector() = %v, want %v", got, want)
+	}
+}
+
+var inferencePoolPorts = []*model.Port{
+	{
+		Name:     "http-0",
+		Port:     54321,
+		Protocol: "HTTP",
+	},
+	{
+		Name:     "http-1",
+		Port:     54322,
+		Protocol: "HTTP",
+	},
+	{
+		Name:     "http-2",
+		Port:     54323,
+		Protocol: "HTTP",
+	},
+}
+
 var services = []*model.Service{
 	{
 		Attributes: model.ServiceAttributes{
@@ -135,7 +183,7 @@ var services = []*model.Service{
 				InferencePoolExtensionRefFailureMode: "FailClose",
 			},
 		},
-		Ports: ports,
+		Ports: inferencePoolPorts,
 		Hostname: host.Name(fmt.Sprintf("%s.default.svc.domain.suffix", func() string {
 			name, _ := InferencePoolServiceName("infpool-gen")
 			return name
@@ -150,7 +198,7 @@ var services = []*model.Service{
 				InferencePoolExtensionRefFailureMode: "FailClose",
 			},
 		},
-		Ports: ports,
+		Ports: inferencePoolPorts,
 		Hostname: host.Name(fmt.Sprintf("%s.default.svc.domain.suffix", func() string {
 			name, _ := InferencePoolServiceName("infpool-gen2")
 			return name
@@ -165,7 +213,7 @@ var services = []*model.Service{
 				InferencePoolExtensionRefFailureMode: "FailClose",
 			},
 		},
-		Ports: ports,
+		Ports: inferencePoolPorts,
 		Hostname: host.Name(fmt.Sprintf("%s.default.svc.domain.suffix", func() string {
 			name, _ := InferencePoolServiceName("infpool-model1")
 			return name
@@ -180,7 +228,7 @@ var services = []*model.Service{
 				InferencePoolExtensionRefFailureMode: "FailClose",
 			},
 		},
-		Ports: ports,
+		Ports: inferencePoolPorts,
 		Hostname: host.Name(fmt.Sprintf("%s.default.svc.domain.suffix", func() string {
 			name, _ := InferencePoolServiceName("infpool-model2")
 			return name
@@ -600,9 +648,8 @@ func init() {
 	features.EnableAlphaGatewayAPI = true
 	features.EnableAmbientWaypoints = true
 	features.EnableAmbientMultiNetwork = true
-	// Recompute with ambient enabled
-	classInfos = getClassInfos()
-	builtinClasses = getBuiltinClasses()
+	// Recompute with the desired feature flags.
+	SetGatewayClassName("")
 }
 
 type TestStatusQueue struct {
@@ -738,6 +785,12 @@ func TestConvertResources(t *testing.T) {
 			),
 		},
 		{name: "mix-backend-policy"},
+		{
+			name: "gateway-invalid-parameters-ref",
+			validationIgnorer: crdvalidation.NewValidationIgnorer(
+				"higress-system/^valid-parameters$",
+			),
+		},
 		//{name: "listenerset"},
 		//{name: "listenerset-cross-namespace"},
 		//{name: "listenerset-invalid"},
@@ -824,11 +877,133 @@ func TestConvertResources(t *testing.T) {
 	}
 }
 
+func TestReportGatewayStatusAddressType(t *testing.T) {
+	cases := []struct {
+		name      string
+		ingresses []corev1.LoadBalancerIngress
+		want      map[string]k8s.AddressType
+	}{
+		{
+			name: "load balancer IPv4",
+			ingresses: []corev1.LoadBalancerIngress{
+				{IP: "47.98.1.2"},
+			},
+			want: map[string]k8s.AddressType{
+				"47.98.1.2": k8s.IPAddressType,
+			},
+		},
+		{
+			name: "load balancer IPv6",
+			ingresses: []corev1.LoadBalancerIngress{
+				{IP: "2001:db8::1"},
+			},
+			want: map[string]k8s.AddressType{
+				"2001:db8::1": k8s.IPAddressType,
+			},
+		},
+		{
+			name: "load balancer hostname",
+			ingresses: []corev1.LoadBalancerIngress{
+				{Hostname: "k8s-higress-higressg-1234567890.us-west-2.elb.amazonaws.com"},
+			},
+			want: map[string]k8s.AddressType{
+				"k8s-higress-higressg-1234567890.us-west-2.elb.amazonaws.com": k8s.HostnameAddressType,
+			},
+		},
+		{
+			name: "mixed load balancer addresses",
+			ingresses: []corev1.LoadBalancerIngress{
+				{IP: "47.98.1.2"},
+				{Hostname: "higress.cn-hangzhou.alb.aliyuncs.com"},
+			},
+			want: map[string]k8s.AddressType{
+				"47.98.1.2":                            k8s.IPAddressType,
+				"higress.cn-hangzhou.alb.aliyuncs.com": k8s.HostnameAddressType,
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "higress-gateway",
+					Namespace: "higress-system",
+				},
+				Spec: corev1.ServiceSpec{
+					Type: corev1.ServiceTypeLoadBalancer,
+					Ports: []corev1.ServicePort{
+						{
+							Name:     "http",
+							Port:     80,
+							Protocol: corev1.ProtocolTCP,
+						},
+					},
+				},
+				Status: corev1.ServiceStatus{
+					LoadBalancer: corev1.LoadBalancerStatus{
+						Ingress: tt.ingresses,
+					},
+				},
+			}
+			stop := test.NewStop(t)
+			kc := kube.NewFakeClient(svc)
+			kc.RunAndWait(stop)
+			ctx := NewGatewayContext(nil, constants.DefaultClusterName, kc, "cluster.local")
+			gw := &k8s.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "higress-gateway",
+					Namespace:  "higress-system",
+					Generation: 1,
+				},
+				Spec: k8s.GatewaySpec{
+					GatewayClassName: "higress",
+					Listeners: []k8s.Listener{
+						{
+							Name:     "http",
+							Port:     80,
+							Protocol: k8s.HTTPProtocolType,
+						},
+					},
+				},
+			}
+			gs := &k8s.GatewayStatus{}
+			servers := []*istio.Server{
+				{
+					Port: &istio.Port{
+						Name:     "http",
+						Number:   80,
+						Protocol: "HTTP",
+					},
+				},
+			}
+
+			reportGatewayStatus(&ctx, gw, gs, []string{"higress-gateway.higress-system.svc.cluster.local"}, servers, 0, nil, 1)
+
+			if len(gs.Addresses) != len(tt.want) {
+				t.Fatalf("expected %d addresses, got %d: %#v", len(tt.want), len(gs.Addresses), gs.Addresses)
+			}
+			for _, got := range gs.Addresses {
+				wantType, ok := tt.want[got.Value]
+				if !ok {
+					t.Fatalf("unexpected address value %q in %#v", got.Value, gs.Addresses)
+				}
+				if got.Type == nil {
+					t.Fatalf("expected address %q type %q, got nil", got.Value, wantType)
+				}
+				if *got.Type != wantType {
+					t.Fatalf("expected address %q type %q, got %q", got.Value, wantType, *got.Type)
+				}
+			}
+		})
+	}
+}
+
 func setupClientCRDs(t *testing.T, kc kube.CLIClient) {
 	for _, crd := range []schema.GroupVersionResource{
 		gvr.KubernetesGateway,
 		gvr.ReferenceGrant,
-		gvr.XListenerSet,
+		gvr.ListenerSet,
 		gvr.GatewayClass,
 		gvr.HTTPRoute,
 		gvr.GRPCRoute,
@@ -1400,6 +1575,36 @@ func TestGatewayReferenceAllowedParentHostnameParsing(t *testing.T) {
 	}
 }
 
+func TestRouteParentReferenceHostnameIntersection(t *testing.T) {
+	tests := []struct {
+		name         string
+		listenerHost string
+		routeHost    string
+		wantHost     string
+		wantMatch    bool
+	}{
+		{name: "empty listener", listenerHost: "", routeHost: "example.com", wantHost: "example.com", wantMatch: true},
+		{name: "empty route", listenerHost: "example.com", routeHost: "*", wantHost: "example.com", wantMatch: true},
+		{name: "exact match", listenerHost: "example.com", routeHost: "example.com", wantHost: "example.com", wantMatch: true},
+		{name: "exact listener and wildcard route", listenerHost: "foo.example.com", routeHost: "*.example.com", wantHost: "foo.example.com", wantMatch: true},
+		{name: "wildcard listener and exact route", listenerHost: "*.example.com", routeHost: "foo.example.com", wantHost: "foo.example.com", wantMatch: true},
+		{name: "narrower route wildcard", listenerHost: "*.example.com", routeHost: "*.foo.example.com", wantHost: "*.foo.example.com", wantMatch: true},
+		{name: "narrower listener wildcard", listenerHost: "*.foo.example.com", routeHost: "*.example.com", wantHost: "*.foo.example.com", wantMatch: true},
+		{name: "disjoint exact hosts", listenerHost: "foo.example.com", routeHost: "bar.example.com", wantMatch: false},
+		{name: "disjoint wildcard hosts", listenerHost: "*.example.com", routeHost: "*.example.net", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := routeParentReference{Hostname: tt.listenerHost}
+			gotHost, gotMatch := parent.hostnameIntersection(tt.routeHost)
+			if gotHost != tt.wantHost || gotMatch != tt.wantMatch {
+				t.Fatalf("hostnameIntersection() = (%q, %v), want (%q, %v)", gotHost, gotMatch, tt.wantHost, tt.wantMatch)
+			}
+		})
+	}
+}
+
 func TestReferencePolicy(t *testing.T) {
 	validator := crdvalidation.NewIstioValidator(t)
 	type res struct {
@@ -1581,6 +1786,16 @@ func readConfig(t testing.TB, filename string, validator *crdvalidation.Validato
 		if name == "" {
 			name, _, _ = strings.Cut(svc.Hostname.String(), ".")
 		}
+		servicePorts := svcPorts
+		if _, isInferencePool := svc.Attributes.Labels[InferencePoolExtensionRefSvc]; isInferencePool {
+			servicePorts = slices.Map(svc.Ports, func(port *model.Port) corev1.ServicePort {
+				return corev1.ServicePort{
+					Name:     port.Name,
+					Port:     int32(port.Port),
+					Protocol: corev1.ProtocolTCP,
+				}
+			})
+		}
 		svcObj := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: svc.Attributes.Namespace,
@@ -1588,7 +1803,7 @@ func readConfig(t testing.TB, filename string, validator *crdvalidation.Validato
 				Labels:    svc.Attributes.Labels,
 			},
 			Spec: corev1.ServiceSpec{
-				Ports: svcPorts,
+				Ports: servicePorts,
 			},
 		}
 		objs = append(objs, svcObj)

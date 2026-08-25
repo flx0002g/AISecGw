@@ -57,6 +57,8 @@ type Ingress struct {
 
 	DownstreamTLS *DownstreamTLSConfig
 
+	SSLPassthrough *SSLPassthroughConfig
+
 	Canary *CanaryConfig
 
 	IPAccessControl *IPAccessControlConfig
@@ -115,6 +117,10 @@ func (i *Ingress) IsCanary() bool {
 	return i.Canary.Enabled
 }
 
+func (i *Ingress) IsSSLPassthrough() bool {
+	return i.SSLPassthrough != nil && i.SSLPassthrough.Enabled
+}
+
 // CanaryKind return byHeader, byWeight
 func (i *Ingress) CanaryKind() (bool, bool) {
 	if !i.IsCanary() {
@@ -132,7 +138,8 @@ func (i *Ingress) CanaryKind() (bool, bool) {
 
 func (i *Ingress) NeedTrafficPolicy() bool {
 	return i.UpstreamTLS != nil ||
-		i.LoadBalance != nil
+		i.LoadBalance != nil ||
+		i.Destination.HasBackendProtocols()
 }
 
 type AnnotationHandler interface {
@@ -157,6 +164,7 @@ func NewAnnotationHandlerManager() AnnotationHandler {
 			canary{},
 			cors{},
 			downstreamTLS{},
+			sslPassthrough{},
 			redirect{},
 			rewrite{},
 			upstreamTLS{},

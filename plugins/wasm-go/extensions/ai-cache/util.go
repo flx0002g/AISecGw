@@ -17,7 +17,11 @@ func handleNonStreamChunk(ctx wrapper.HttpContext, c config.PluginConfig, chunk 
 		ctx.SetContext(CACHE_CONTENT_CONTEXT_KEY, chunk)
 		return nil
 	}
-	tempContent := tempContentI.([]byte)
+	tempContent, ok := tempContentI.([]byte)
+	if !ok {
+		ctx.SetContext(CACHE_CONTENT_CONTEXT_KEY, chunk)
+		return nil
+	}
 	tempContent = append(tempContent, chunk...)
 	ctx.SetContext(CACHE_CONTENT_CONTEXT_KEY, tempContent)
 	return nil
@@ -34,7 +38,12 @@ func handleStreamChunk(ctx wrapper.HttpContext, c config.PluginConfig, chunk []b
 	partialMessageI := ctx.GetContext(PARTIAL_MESSAGE_CONTEXT_KEY)
 	log.Debugf("[handleStreamChunk] cache content: %v", ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY))
 	if partialMessageI != nil {
-		partialMessage = append(partialMessageI.([]byte), chunk...)
+		pm, ok := partialMessageI.([]byte)
+		if !ok {
+			partialMessage = chunk
+		} else {
+			partialMessage = append(pm, chunk...)
+		}
 	} else {
 		partialMessage = chunk
 	}
@@ -59,7 +68,12 @@ func processNonStreamLastChunk(ctx wrapper.HttpContext, c config.PluginConfig, c
 	var body []byte
 	tempContentI := ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY)
 	if tempContentI != nil {
-		body = append(tempContentI.([]byte), chunk...)
+		tc, ok := tempContentI.([]byte)
+		if ok {
+			body = append(tc, chunk...)
+		} else {
+			body = chunk
+		}
 	} else {
 		body = chunk
 	}
@@ -76,7 +90,12 @@ func processStreamLastChunk(ctx wrapper.HttpContext, c config.PluginConfig, chun
 		var lastMessage []byte
 		partialMessageI := ctx.GetContext(PARTIAL_MESSAGE_CONTEXT_KEY)
 		if partialMessageI != nil {
-			lastMessage = append(partialMessageI.([]byte), chunk...)
+			pm, ok := partialMessageI.([]byte)
+			if ok {
+				lastMessage = append(pm, chunk...)
+			} else {
+				lastMessage = chunk
+			}
 		} else {
 			lastMessage = chunk
 		}
@@ -88,17 +107,35 @@ func processStreamLastChunk(ctx wrapper.HttpContext, c config.PluginConfig, chun
 		if err != nil {
 			return "", fmt.Errorf("[processStreamLastChunk] processSSEMessage failed, error: %v", err)
 		}
+		// 兜底：[DONE] 或其它尾部 chunk 无 content 时，processSSEMessage 返回空，
+		// 此时从 ctx 取已累积的缓存内容，避免缓存写空。
+		if value == "" {
+			if tempContentI := ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY); tempContentI != nil {
+				if s, ok := tempContentI.(string); ok {
+					value = s
+				}
+			}
+		}
 		return value, nil
 	}
 	tempContentI := ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY)
 	if tempContentI == nil {
 		return "", nil
 	}
-	return tempContentI.(string), nil
+	s, ok := tempContentI.(string)
+	if !ok {
+		return "", nil
+	}
+	return s, nil
 }
 
 func processSSEMessage(ctx wrapper.HttpContext, c config.PluginConfig, sseMessage string, log log.Log) (string, error) {
 	content := ""
+	// done 标记本次 sseMessage 是否遇到 [DONE]。当最后一段 content 与 [DONE]
+	// 处于同一 buffer 时，必须跳出循环后由循环外的 merge 逻辑统一合并到
+	// CACHE_CONTENT_CONTEXT_KEY，否则本次解析的最后一段 content 会被 [DONE]
+	// 早 return 丢弃（PR #3962 review）。
+	done := false
 	for _, chunk := range strings.Split(sseMessage, "\n\n") {
 		log.Debugf("single sse message: %s", chunk)
 		subMessages := strings.Split(chunk, "\n")
@@ -117,7 +154,9 @@ func processSSEMessage(ctx wrapper.HttpContext, c config.PluginConfig, sseMessag
 		bodyJson := message[5:]
 
 		if strings.TrimSpace(bodyJson) == "[DONE]" {
-			return content, nil
+			// 跳出循环，把已解析的局部 content 留到循环外统一合并。
+			done = true
+			break
 		}
 
 		// Extract values from JSON fields
@@ -130,22 +169,31 @@ func processSSEMessage(ctx wrapper.HttpContext, c config.PluginConfig, sseMessag
 		}
 
 		// Check if the ResponseBody field exists
-		if !responseBody.Exists() {
-			if ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY) != nil {
-				log.Debugf("[processSSEMessage] unable to extract content from message; cache content is not nil: %s", message)
-				return content, nil
-			}
-			return content, fmt.Errorf("[processSSEMessage] unable to extract content from message; cache content is nil: %s", message)
-		} else {
+		if responseBody.Exists() {
 			content += responseBody.String()
 		}
 	}
-	tempContentI := ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY)
-	// If there is no content in the cache, initialize and set the content
-	if tempContentI == nil {
-		ctx.SetContext(CACHE_CONTENT_CONTEXT_KEY, content)
-	} else {
-		ctx.SetContext(CACHE_CONTENT_CONTEXT_KEY, tempContentI.(string)+content)
+
+	// 本次 sseMessage 既没解析到 content 也没遇到 [DONE]：保持 ctx 不变，直接返回。
+	if content == "" && !done {
+		log.Debugf("[processSSEMessage] no content extracted; skipping cache update: %s", sseMessage)
+		return "", nil
 	}
-	return content, nil
+
+	if content != "" {
+		if v := ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY); v == nil {
+			ctx.SetContext(CACHE_CONTENT_CONTEXT_KEY, content)
+		} else if s, ok := v.(string); ok {
+			ctx.SetContext(CACHE_CONTENT_CONTEXT_KEY, s+content)
+		}
+	}
+
+	// handleStreamChunk 不使用返回值；processStreamLastChunk 把它作为 cacheResponse 的
+	// SET value，必须是完整累积值（避免最后一段 content 因 [DONE] 早 return 被丢）。
+	if v := ctx.GetContext(CACHE_CONTENT_CONTEXT_KEY); v != nil {
+		if s, ok := v.(string); ok {
+			return s, nil
+		}
+	}
+	return "", nil
 }

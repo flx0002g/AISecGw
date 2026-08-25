@@ -16,9 +16,10 @@ import (
 
 // claudeProvider is the provider for Claude service.
 const (
-	claudeDomain           = "api.anthropic.com"
-	claudeDefaultVersion   = "2023-06-01"
-	claudeDefaultMaxTokens = 4096
+	claudeDomain                  = "api.anthropic.com"
+	claudeDefaultVersion          = "2023-06-01"
+	claudeDefaultMaxTokens        = 4096
+	claudeMinThinkingBudgetTokens = 1024
 
 	// Claude Code mode constants
 	claudeCodeUserAgent    = "claude-cli/2.1.2 (external, cli)"
@@ -372,6 +373,7 @@ func (c *claudeProvider) TransformRequestHeaders(ctx wrapper.HttpContext, apiNam
 	} else {
 		// Standard mode: use x-api-key
 		headers.Set("x-api-key", c.config.GetApiTokenInUse(ctx))
+		headers.Del(util.HeaderAuthorization)
 	}
 }
 
@@ -485,13 +487,17 @@ func (c *claudeProvider) buildClaudeTextGenRequest(origRequest *chatCompletionRe
 				budgetTokens = 8192 // Default to medium
 			}
 		}
-		// Ensure minimum budget_tokens requirement
-		if budgetTokens < 1024 {
-			budgetTokens = 1024
+		if budgetTokens < claudeMinThinkingBudgetTokens {
+			budgetTokens = claudeMinThinkingBudgetTokens
 		}
-		claudeRequest.Thinking = &claudeThinkingConfig{
-			Type:         "enabled",
-			BudgetTokens: budgetTokens,
+		if budgetTokens >= claudeRequest.MaxTokens {
+			budgetTokens = claudeRequest.MaxTokens - 1
+		}
+		if budgetTokens >= claudeMinThinkingBudgetTokens {
+			claudeRequest.Thinking = &claudeThinkingConfig{
+				Type:         "enabled",
+				BudgetTokens: budgetTokens,
+			}
 		}
 	}
 
@@ -924,6 +930,7 @@ func (c *claudeProvider) streamResponseClaude2OpenAI(ctx wrapper.HttpContext, or
 					ToolCalls: []toolCall{
 						{
 							Index: index,
+							Type:  "function",
 							Function: functionCall{
 								Arguments: origResponse.Delta.PartialJson,
 							},
